@@ -842,7 +842,6 @@ DO WHILE (T .LE. TSTOP .OR. IDUMPCOUNT .LE. NDUMPS)
       DO I = 1, LIST_WUI_BURNING%NUM_NODES
          IX = L_WUI_P%IX
          IY = L_WUI_P%IY
-         WRITE(*,*) "Enter:", IX, IY, L_WUI_P%IFBFM
          ! Skip non-burning pixels
          ! IF (PHIP(IX,IY) .GT. 0.) THEN
          !    L_WUI_P => L_WUI_P%NEXT
@@ -853,13 +852,10 @@ DO WHILE (T .LE. TSTOP .OR. IDUMPCOUNT .LE. NDUMPS)
          ! WRITE(*,*) "Updating urban model paras:", IX, IY
          ! Prepare vegetative cell in WUI for ellipse/heat flux calculation
          IF (L_WUI_P%IFBFM .NE. 91) CALL SURFACE_SPREAD_RATE(LIST_WUI_BURNING, L_WUI_P)
+         IF (L_WUI_P%IFBFM .EQ. 91) WRITE(*,*) "CALLING WU-E FUNCTIONS", IX, IY, L_WUI_P%IFBFM
          CALL HRR_TRANSIENT(L_WUI_P, T)
          CALL ELLIPSE_UCB(L_WUI_P)
          CALL CALC_WUI_HEATFLUX(L_WUI_P, NX, NY)
-
-         L_WUI_P%FLIN_SURFACE = L_WUI_P%HRR_TRANSIENT*ANALYSIS_CELLSIZE ! kW/m
-
-         HRR_TRANSIENT_MAP(IX,IY) = L_WUI_P%HRR_TRANSIENT
 
          L_WUI_P => L_WUI_P%NEXT
       ENDDO
