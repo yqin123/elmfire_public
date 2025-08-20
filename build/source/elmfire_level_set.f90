@@ -30,8 +30,6 @@ INTEGER :: I, ILOC, J, IX, IY, ITIMESTEP, IX_IGN, IY_IGN, ISTEP, K, LU, IT1, IT2
            ITLO_METEOROLOGY, ITHI_METEOROLOGY, BINARY_OUTPUTS_SIZE, IT_EA, IXCEN, IYCEN, IOS, IPYROME, &
            N_TO_TAG, N_SPOT_FIRES, ILH, IT2_LSP, IFBFM, IBLDGFM, ICOL, IROW
 
-INTEGER :: IX_WUI, IY_WUI, IXTAGSTART, IXTAGSTOP, IYTAGSTART, IYTAGSTOP
-
 INTEGER, SAVE :: NX, NY, NDUMPS
 INTEGER, POINTER, SAVE, DIMENSION(:) :: IX_TO_TAG, IY_TO_TAG, IX_SPOT_FIRE, IY_SPOT_FIRE
 
@@ -52,8 +50,6 @@ REAL, POINTER, SAVE, DIMENSION(:,:,:) :: A_TIMES_BURNED
 LOGICAL :: IA_HAS_OCCURRED, LOPEN, GO, CALL_SPOTTING, JUST_INTERPOLATED, DUMP_SMOKE_OUTPUTS, RUN
 LOGICAL, SAVE :: FIRSTCALL
 LOGICAL, DIMENSION(1:100) :: ALREADY_IGNITED
-
-LOGICAL :: CELL_IN_WUI
 
 ! REAL, ALLOCATABLE, DIMENSION(:,:) :: DYNAMIC_ARRAY  ! Dynamic array to store IX and IY
 
@@ -413,21 +409,7 @@ IF (.NOT. RANDOM_IGNITIONS) THEN
          IF (USE_BLDG_SPREAD_MODEL) THEN
             LIST_BURNED%TAIL%IBLDGFM =BLDG_FUEL_MODEL%I2(IX,IY,1)
             ! Tagged WUI cells.
-            IXTAGSTART = MAX(3,    IX - BANDTHICKNESS_WUI) 
-            IXTAGSTOP  = MIN(NX-2, IX + BANDTHICKNESS_WUI)
-            IYTAGSTART = MAX(3,    IY - BANDTHICKNESS_WUI) 
-            IYTAGSTOP  = MIN(NY-2, IY + BANDTHICKNESS_WUI)
-            CELL_IN_WUI = .FALSE.
-            DO IY_WUI = IYTAGSTART, IYTAGSTOP
-            DO IX_WUI = IXTAGSTART, IXTAGSTOP
-               IF (FBFM%I2(IX_WUI,IY_WUI,1) .EQ. 91) THEN
-                  CELL_IN_WUI = .TRUE.
-                  EXIT
-               ENDIF
-            ENDDO
-            ENDDO
-            WRITE(*,*) CELL_IN_WUI
-            IF (CELL_IN_WUI) CALL TAG_WUI(NX, NY, LIST_BURNED%TAIL%IX, LIST_BURNED%TAIL%IY, T) 
+            CALL TAG_WUI(NX, NY, LIST_BURNED%TAIL%IX, LIST_BURNED%TAIL%IY, T) 
          ENDIF
 #endif
 
@@ -488,14 +470,16 @@ continue
       DO I = 1, LIST_WUI_BURNING%NUM_NODES
          IX = L_WUI_P%IX
          IY = L_WUI_P%IY
+         CALL ELLIPSE_UCB(L_WUI_P)
          ! Skip non-burning pixels
-         IF (TIME_OF_ARRIVAL(IX,IY) .LT. 0.) THEN
+         IF (PHIP(IX,IY) .GT. 0.) THEN
             L_WUI_P => L_WUI_P%NEXT
             CYCLE
+         ELSE
+            L_WUI_P%TIME_OF_ARRIVAL=TIME_OF_ARRIVAL(IX,IY)
          ENDIF
          ! Prepare vegetative cell in WUI for ellipse/heat flux calculation
          IF (L_WUI_P%IFBFM .NE. 91) CALL SURFACE_SPREAD_RATE(LIST_WUI_BURNING, L_WUI_P) ! LIST_WUI_BURNING is not used, just to satisefy the input format. Calculation is performed on L_WUI_P
-         CALL ELLIPSE_UCB(L_WUI_P)
          CALL HRR_TRANSIENT(L_WUI_P, T)
          CALL CALC_WUI_HEATFLUX(L_WUI_P, NX, NY)
 
@@ -632,7 +616,6 @@ DO WHILE (T .LE. TSTOP .OR. IDUMPCOUNT .LE. NDUMPS)
             IY_IGN = IROW_FROM_Y(Y_IGN(I),ANALYSIS_YLLCORNER,ANALYSIS_CELLSIZE)
             CALL TAG_BAND(NX,NY,IX_IGN,IY_IGN,T)
             CALL APPEND(LIST_BURNED,IX_IGN,IY_IGN,T)
-            ! CALL APPEND_TO_DYNAMIC_ARRAY(IX_IGN,IY_IGN, LIST_BURNED%NUM_NODES, DYNAMIC_ARRAY)
             PHIP    (IX_IGN,IY_IGN) = -1.0
          ENDIF
       ENDDO
@@ -842,19 +825,18 @@ DO WHILE (T .LE. TSTOP .OR. IDUMPCOUNT .LE. NDUMPS)
       DO I = 1, LIST_WUI_BURNING%NUM_NODES
          IX = L_WUI_P%IX
          IY = L_WUI_P%IY
+         ! Update the ellipse parimeter (does it make sense? Unignited cells has fire perimeter already?)
+         CALL ELLIPSE_UCB(L_WUI_P)
          ! Skip non-burning pixels
-         ! IF (PHIP(IX,IY) .GT. 0.) THEN
-         !    L_WUI_P => L_WUI_P%NEXT
-         !    CYCLE
-         ! ELSE
-         !    L_WUI_P%TIME_OF_ARRIVAL=TIME_OF_ARRIVAL(IX,IY)
-         ! ENDIF
-         ! WRITE(*,*) "Updating urban model paras:", IX, IY
+         IF (PHIP(IX,IY) .GT. 0.) THEN
+            L_WUI_P => L_WUI_P%NEXT
+            CYCLE
+         ELSE
+            L_WUI_P%TIME_OF_ARRIVAL=TIME_OF_ARRIVAL(IX,IY)
+         ENDIF
          ! Prepare vegetative cell in WUI for ellipse/heat flux calculation
          IF (L_WUI_P%IFBFM .NE. 91) CALL SURFACE_SPREAD_RATE(LIST_WUI_BURNING, L_WUI_P)
-         IF (L_WUI_P%IFBFM .EQ. 91) WRITE(*,*) "CALLING WU-E FUNCTIONS", IX, IY, L_WUI_P%IFBFM
          CALL HRR_TRANSIENT(L_WUI_P, T)
-         CALL ELLIPSE_UCB(L_WUI_P)
          CALL CALC_WUI_HEATFLUX(L_WUI_P, NX, NY)
 
          L_WUI_P => L_WUI_P%NEXT
@@ -925,7 +907,6 @@ DO WHILE (T .LE. TSTOP .OR. IDUMPCOUNT .LE. NDUMPS)
          ENDIF
 
          CALL APPEND(LIST_BURNED, IX, IY, T)
-         ! CALL APPEND_TO_DYNAMIC_ARRAY(IX, IY, LIST_BURNED%NUM_NODES, DYNAMIC_ARRAY)
 
          LIST_BURNED%TAIL%IR                     = C%IR
          LIST_BURNED%TAIL%VS0                    = C%VS0
@@ -954,21 +935,8 @@ DO WHILE (T .LE. TSTOP .OR. IDUMPCOUNT .LE. NDUMPS)
 #ifdef _WUI
          IF (USE_BLDG_SPREAD_MODEL) THEN
             LIST_BURNED%TAIL%IBLDGFM =BLDG_FUEL_MODEL%I2(IX,IY,1)
-            ! Tagged WUI cells.
-            IXTAGSTART = MAX(3,    IX - BANDTHICKNESS_WUI) 
-            IXTAGSTOP  = MIN(NX-2, IX + BANDTHICKNESS_WUI)
-            IYTAGSTART = MAX(3,    IY - BANDTHICKNESS_WUI) 
-            IYTAGSTOP  = MIN(NY-2, IY + BANDTHICKNESS_WUI)
-            CELL_IN_WUI = .FALSE.
-            DO IY_WUI = IYTAGSTART, IYTAGSTOP
-            DO IX_WUI = IXTAGSTART, IXTAGSTOP
-               IF (FBFM%I2(IX_WUI,IY_WUI,1) .EQ. 91) THEN
-                  CELL_IN_WUI = .TRUE.
-                  EXIT
-               ENDIF
-            ENDDO
-            ENDDO
-            IF (CELL_IN_WUI) CALL TAG_WUI(NX, NY, LIST_BURNED%TAIL%IX, LIST_BURNED%TAIL%IY, T) 
+            ! Tag WUI cells
+            CALL TAG_WUI(NX, NY, IX, IY, T) 
          ENDIF
          CALL ACCUMULATE_CPU_USAGE(47, IT1, IT2)
 #endif
@@ -1448,7 +1416,7 @@ DO WHILE (T .LE. TSTOP .OR. IDUMPCOUNT .LE. NDUMPS)
    IF (USE_BLDG_SPREAD_MODEL .AND. (BLDG_SPREAD_MODEL_TYPE .EQ. 2)) THEN
       IF (DUMP_FUEL_CONSUMPTION) CALL CALC_FUEL_CONSUMPTION(DT, NX, NY)
       ! Untag excessive wui nodes
-      CALL UNTAG_CELLS_WUI()
+      CALL UNTAG_CELLS_WUI(T)
       ! Reset the transient heat flux.
       TRANSIENT_DFC_WUI(:,:) = 0.
       TRANSIENT_RADIATION_WUI(:,:) = 0.
@@ -2046,7 +2014,7 @@ IF (ISTEP .EQ. 1) THEN
             ILH = MAX(MIN(NINT(100.*C%MLH),120),30)
             C%FLIN_SURFACE = FUEL_MODEL_TABLE_2D(C%IFBFM,ILH)%TR * C%IR * C%VELOCITY * 0.3048 ! kW/m
 
-            IF (NO_SURFACE_FIRE) THEN
+            IF (USE_UMD_SPOTTING_MODEL .AND. NO_SURFACE_FIRE) THEN
                C%UX = 1E-5
                C%UY = 1E-5
             ENDIF
@@ -2097,7 +2065,7 @@ ELSE !ISTEP .EQ. 2
 
          ILH = MAX(MIN(NINT(100.*C%MLH),120),30)
          C%FLIN_SURFACE = FUEL_MODEL_TABLE_2D(C%IFBFM,ILH)%TR * C%IR * C%VELOCITY * 0.3048 ! kW/m
-         IF (NO_SURFACE_FIRE) THEN
+         IF (USE_UMD_SPOTTING_MODEL .AND. NO_SURFACE_FIRE) THEN
                C%UX = 1E-5
                C%UY = 1E-5
          ENDIF
@@ -2308,48 +2276,83 @@ SUBROUTINE TAG_WUI(NX, NY, IXLOC, IYLOC, T)
 INTEGER, INTENT(IN) :: NX, NY, IXLOC, IYLOC
 REAL, INTENT(IN) :: T
 INTEGER :: IXTAGSTART, IXTAGSTOP, IYTAGSTART, IYTAGSTOP, IX, IY
+LOGICAL :: CELL_IN_WUI
 
 IXTAGSTART = MAX(3,    IXLOC - BANDTHICKNESS_WUI) 
 IXTAGSTOP  = MIN(NX-2, IXLOC + BANDTHICKNESS_WUI)
 IYTAGSTART = MAX(3,    IYLOC - BANDTHICKNESS_WUI) 
 IYTAGSTOP  = MIN(NY-2, IYLOC + BANDTHICKNESS_WUI)
 
-DO IY = IYTAGSTART, IYTAGSTOP
-DO IX = IXTAGSTART, IXTAGSTOP
-   IF (ISNONBURNABLE(IX,IY)) CYCLE
-   IF (.NOT. TAGGED_WUI(IX,IY) .AND. (.NOT. EVERTAGGED_WUI(IX,IY)) ) THEN 
-      TAGGED_WUI    (IX,IY) = .TRUE.
-      EVERTAGGED_WUI(IX,IY) = .TRUE.
-      CALL APPEND(LIST_WUI_BURNING, IX, IY, T)
-      
-      LIST_WUI_BURNING%TAIL%TIME_OF_ARRIVAL = TIME_OF_ARRIVAL(IX,IY)
+IF (FBFM%I2(IXLOC, IYLOC, 1) .EQ. 91) THEN
+   ! Tag all cells within the BANDTHICKNESS_WUI surrounding an urban cell to LIST_WUI_BURNING
+   DO IY = IYTAGSTART, IYTAGSTOP
+   DO IX = IXTAGSTART, IXTAGSTOP
+      IF (ISNONBURNABLE(IX,IY)) CYCLE
+      IF (.NOT. TAGGED_WUI(IX,IY) .AND. (.NOT. EVERTAGGED_WUI(IX,IY)) ) THEN 
+         TAGGED_WUI    (IX,IY) = .TRUE.
+         EVERTAGGED_WUI(IX,IY) = .TRUE.
+         CALL APPEND(LIST_WUI_BURNING, IX, IY, T)
+
+         LIST_WUI_BURNING%TAIL%TIME_OF_ARRIVAL = TIME_OF_ARRIVAL(IX,IY)
+      ENDIF
+   ENDDO
+   ENDDO
+ELSE
+   ! Only tag the burning vegetative cells when it is close enough (<BANDTHICKNESS_WUI) to urban cells
+   IF (ISNONBURNABLE(IXLOC, IYLOC)) RETURN
+   IF (.NOT. TAGGED_WUI(IXLOC, IYLOC) .AND. (.NOT. EVERTAGGED_WUI(IXLOC, IYLOC)) ) THEN 
+
+      CELL_IN_WUI = .FALSE.
+      DO IY = IYTAGSTART, IYTAGSTOP
+      DO IX = IXTAGSTART, IXTAGSTOP
+         IF (FBFM%I2(IX,IY,1) .EQ. 91) THEN
+            CELL_IN_WUI = .TRUE.
+            IF (.NOT. TAGGED_WUI(IX,IY) .AND. (.NOT. EVERTAGGED_WUI(IX,IY)) ) THEN 
+               TAGGED_WUI    (IX,IY) = .TRUE.
+               EVERTAGGED_WUI(IX,IY) = .TRUE.
+               CALL APPEND(LIST_WUI_BURNING, IX, IY, T)
+
+               LIST_WUI_BURNING%TAIL%TIME_OF_ARRIVAL = TIME_OF_ARRIVAL(IX,IY)
+            ENDIF
+         ENDIF
+      ENDDO
+      ENDDO
+
+      IF (CELL_IN_WUI) THEN
+         TAGGED_WUI    (IXLOC, IYLOC) = .TRUE.
+         EVERTAGGED_WUI(IXLOC, IYLOC) = .TRUE.
+         CALL APPEND(LIST_WUI_BURNING, IXLOC, IYLOC, T)
+
+         LIST_WUI_BURNING%TAIL%TIME_OF_ARRIVAL = TIME_OF_ARRIVAL(IXLOC, IYLOC)
+      ENDIF
    ENDIF
-ENDDO
-ENDDO
+ENDIF
 
 ! *****************************************************************************
 END SUBROUTINE TAG_WUI
 ! *****************************************************************************
 
 ! *****************************************************************************
-SUBROUTINE UNTAG_CELLS_WUI()
+SUBROUTINE UNTAG_CELLS_WUI(T)
 ! *****************************************************************************
 ! Delete WUI nodes when they stop burning:
 ! (reach end of design fire curve or heat flux drop below threshold value)
 TYPE(NODE), POINTER :: C => NULL()
-
-INTEGER :: IX, IY, I
+REAL, INTENT(IN) :: T
+INTEGER :: IX, IY
 REAL :: TOTAL_HEAT_FLUX
 
 IF (LIST_WUI_BURNING%NUM_NODES .LE. 0) RETURN
 
 C=>LIST_WUI_BURNING%HEAD
 
-DO I = 1, LIST_WUI_BURNING%NUM_NODES
+DO 
+   IF (LIST_WUI_BURNING%NUM_NODES .LE. 0) EXIT
+   IF (.NOT. ASSOCIATED(C)) EXIT
 ! Remove cells that have been reached the end of HRR curve:
    IX=C%IX
    IY=C%IY
-   IF (C%HRR_TRANSIENT .LE. 1E-3 .AND. TIME_OF_ARRIVAL(IX, IY) .GT. 0. ) THEN 
+   IF (C%BURNED) THEN 
       CALL DELETE_NODE(LIST_WUI_BURNING, C)
       C => C%NEXT
       CYCLE
@@ -2357,7 +2360,7 @@ DO I = 1, LIST_WUI_BURNING%NUM_NODES
 
 ! Remove cells recieve lower-than threshold HF:
    TOTAL_HEAT_FLUX = TRANSIENT_DFC_WUI(IX,IY)+TRANSIENT_RADIATION_WUI(IX,IY)
-   IF (TOTAL_HEAT_FLUX .LE. CRITICL_HF_WUI .AND. TIME_OF_ARRIVAL(IX, IY) .GT. 0. ) THEN 
+   IF (TOTAL_HEAT_FLUX .LE. CRITICL_HF_WUI .AND. TIME_OF_ARRIVAL(IX, IY) .GT. 0. .AND. T-TIME_OF_ARRIVAL(IX, IY) .GT. 3000. ) THEN 
       CALL DELETE_NODE(LIST_WUI_BURNING, C)
       C => C%NEXT
       CYCLE
