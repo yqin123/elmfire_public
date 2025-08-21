@@ -409,7 +409,7 @@ IF (.NOT. RANDOM_IGNITIONS) THEN
          IF (USE_BLDG_SPREAD_MODEL) THEN
             LIST_BURNED%TAIL%IBLDGFM =BLDG_FUEL_MODEL%I2(IX,IY,1)
             ! Tagged WUI cells.
-            CALL TAG_WUI(NX, NY, LIST_BURNED%TAIL%IX, LIST_BURNED%TAIL%IY, T) 
+            IF(BLDG_SPREAD_MODEL_TYPE .EQ. 2) CALL TAG_WUI(NX, NY, IX, IY, T) 
          ENDIF
 #endif
 
@@ -821,7 +821,6 @@ DO WHILE (T .LE. TSTOP .OR. IDUMPCOUNT .LE. NDUMPS)
 
    IF (USE_BLDG_SPREAD_MODEL .AND. (BLDG_SPREAD_MODEL_TYPE .EQ. 2) .AND. (LIST_WUI_BURNING%NUM_NODES .GT. 0)) THEN
       L_WUI_P => LIST_WUI_BURNING%HEAD
-
       DO I = 1, LIST_WUI_BURNING%NUM_NODES
          IX = L_WUI_P%IX
          IY = L_WUI_P%IY
@@ -936,7 +935,7 @@ DO WHILE (T .LE. TSTOP .OR. IDUMPCOUNT .LE. NDUMPS)
          IF (USE_BLDG_SPREAD_MODEL) THEN
             LIST_BURNED%TAIL%IBLDGFM =BLDG_FUEL_MODEL%I2(IX,IY,1)
             ! Tag WUI cells
-            CALL TAG_WUI(NX, NY, IX, IY, T) 
+            IF(BLDG_SPREAD_MODEL_TYPE .EQ. 2) CALL TAG_WUI(NX, NY, IX, IY, T) 
          ENDIF
          CALL ACCUMULATE_CPU_USAGE(47, IT1, IT2)
 #endif
@@ -1986,8 +1985,7 @@ IF (ISTEP .EQ. 1) THEN
                CONTINUE
             ENDIF
 #endif
-
-! We can get sin(theta - dms) and cos(theta - dms) directly:
+            ! We can get sin(theta - dms) and cos(theta - dms) directly:
             COSANG   = C%NORMVECTORY*C%NORMVECTORY_DMS + C%NORMVECTORX*C%NORMVECTORX_DMS
             A        = MAX(0.5 * (C%VELOCITY_DMS + C%VBACK), 1E-10)
             AACOSANG = A*A*COSANG
@@ -2008,7 +2006,7 @@ IF (ISTEP .EQ. 1) THEN
 
             DYDT_ROTATED = DYDT*C%NORMVECTORY_DMS - DXDT*C%NORMVECTORX_DMS !ft/min, parallel to slope
             C%UY = DYDT_ROTATED * C%UYOUSY * FTPMIN_TO_MPS !m/s, projected
-            
+
             C%VELOCITY = SQRT(DXDT_ROTATED*DXDT_ROTATED + DYDT_ROTATED*DYDT_ROTATED) ! ft/min, parallel to slope
 
             ILH = MAX(MIN(NINT(100.*C%MLH),120),30)
@@ -2360,7 +2358,8 @@ DO
 
 ! Remove cells recieve lower-than threshold HF:
    TOTAL_HEAT_FLUX = TRANSIENT_DFC_WUI(IX,IY)+TRANSIENT_RADIATION_WUI(IX,IY)
-   IF (TOTAL_HEAT_FLUX .LE. CRITICL_HF_WUI .AND. TIME_OF_ARRIVAL(IX, IY) .GT. 0. .AND. T-TIME_OF_ARRIVAL(IX, IY) .GT. 3000. ) THEN 
+   ! IF (TOTAL_HEAT_FLUX .LE. CRITICL_HF_WUI .AND. TIME_OF_ARRIVAL(IX, IY) .GT. 0. .AND. T-TIME_OF_ARRIVAL(IX, IY) .GT. 3000. ) THEN
+   IF (TIME_OF_ARRIVAL(IX, IY) .GT. 0. .AND. T-TIME_OF_ARRIVAL(IX, IY) .GT. 5000. ) THEN 
       CALL DELETE_NODE(LIST_WUI_BURNING, C)
       C => C%NEXT
       CYCLE
